@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Futures Demo</title>
+<style>
+:root{--bg:#0e1015;--panel:#161922;--line:#262b38;--text:#e7e9ef;--muted:#858c9c;--up:#2ecc71;--down:#e5534b}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+header{display:flex;flex-wrap:wrap;gap:20px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+header select{background:var(--panel);color:var(--text);border:1px solid var(--line);padding:6px 8px;border-radius:6px;font-weight:600}
+.price{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.stat{color:var(--muted);font-size:12px}
+.stat b{display:block;color:var(--text);font-size:15px;font-variant-numeric:tabular-nums}
+.status{font-size:12px;color:var(--muted)}
+.status.ok{color:var(--up)} .status.bad{color:var(--down)}
+main{display:grid;grid-template-columns:320px 1fr;gap:12px;padding:12px}
+@media(max-width:800px){main{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+h3{margin:0 0 10px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+label{display:block;font-size:12px;color:var(--muted);margin:8px 0 3px}
+input,select{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:8px;font-size:14px}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+button{border:0;border-radius:6px;padding:10px;font-weight:700;cursor:pointer;color:#fff;font-size:14px}
+.buy{background:var(--up);color:#06210f}
+.sell{background:var(--down)}
+.ghost{background:var(--line);color:var(--text);padding:6px 10px;font-weight:600}
+.muted{color:var(--muted);font-size:12px}
+.up{color:var(--up)} .down{color:var(--down)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}
+th,td{padding:6px 4px;text-align:right;border-bottom:1px solid var(--line)}
+td:first-child{text-align:left}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#222838;padding:10px 16px;border-radius:8px;display:none;box-shadow:0 4px 16px #0008}
+footer{padding:8px 16px 16px;color:var(--muted);font-size:11px}
+.tf{background:transparent;color:var(--muted);padding:4px 10px;font-size:12px}
+.tf.on{background:var(--line);color:var(--text)}
+</style>
+</head>
+<body>
+<header>
+  <select id="symbol">
+    <option>BTCUSDT</option><option>ETHUSDT</option><option>SOLUSDT</option><option>BNBUSDT</option><option>XRPUSDT</option>
+  </select>
+  <div class="price" id="price">—</div>
+  <div class="stat">Баланс<b id="wallet">—</b></div>
+  <div class="stat">Доступно<b id="avail">—</b></div>
+  <div class="stat">Equity<b id="equity">—</b></div>
+  <div class="stat">Нереализ. PnL<b id="upnl">—</b></div>
+  <div class="status" id="conn">подключение…</div>
+  <button class="ghost" id="reset" style="margin-left:auto">Сброс до 10 000</button>
+</header>
+
+<main>
+  <div>
+    <div class="card">
+      <h3>Ордер</h3>
+      <div class="row">
+        <div><label>Тип</label>
+          <select id="type"><option value="market">Маркет</option><option value="limit">Лимит</option></select>
+        </div>
+        <div><label>Плечо</label><input id="lev" type="number" value="10" min="1" max="125"></div>
+      </div>
+      <label>Маржа, USDT</label>
+      <input id="margin" type="number" value="100" min="1" step="1">
+      <div id="limitWrap" style="display:none">
+        <label>Цена лимита</label>
+        <input id="limitPrice" type="number" step="0.01">
+      </div>
+      <div class="row">
+        <div><label>Take Profit</label><input id="tp" type="number" step="0.01" placeholder="—"></div>
+        <div><label>Stop Loss</label><input id="sl" type="number" step="0.01" placeholder="—"></div>
+      </div>
+      <div class="muted" id="preview" style="margin-top:10px"></div>
+      <div class="btns">
+        <button class="buy" data-side="LONG">Long</button>
+        <button class="sell" data-side="SHORT">Short</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div class="card" style="padding:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h3 style="margin:0">График</h3>
+        <div id="tfs">
+          <button class="tf on" data-tf="1m">1m</button><button class="tf" data-tf="5m">5m</button><button class="tf" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button>
+        </div>
+      </div>
+      <div id="chart" style="height:340px"></div>
+    </div>
+    <div class="card"><h3>Позиция</h3><div id="position"></div></div>
+    <div class="card"><h3>Лимит-ордер</h3><div id="orders"></div></div>
+    <div class="card"><h3>История</h3><div id="history"></div></div>
+  </div>
+</main>
+
+<footer>
+  Демо на фейковых деньгах. Цены — реальный публичный поток Binance Futures (ключи не нужны).
+  Упрощения: изолированная маржа, одна позиция, один лимит-ордер, поддержка 0.4%, funding 0.01% каждые 8 ч,
+  закрытие по последней сделке (без стакана и проскальзывания кроме гэпов), ликвидация по формуле без учёта комиссий.
+</footer>
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+const FEE={maker:0.0002,taker:0.0005};
+const MMR=0.004;
+const FUNDING=0.0001;
+const FUND_MS=8*3600*1000;
+const KEY='futures-demo-v1';
+const START=10000;
+
+const $=id=>document.getElementById(id);
+const fmt=(n,d=2)=>Number.isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}):'—';
+const sgn=n=>(n>=0?'+':'')+fmt(n);
+const cls=n=>n>=0?'up':'down';
+
+function fresh(){return {wallet:START,position:null,orders:[],history:[],nextId:1};}
+function load(){
+  try{const s=JSON.parse(localStorage.getItem(KEY));return s&&typeof s.wallet==='number'?s:fresh();}
+  catch{return fresh();}
+}
+function save(){localStorage.setItem(KEY,JSON.stringify(S));}
+function toast(t){
+  const e=$('toast');e.textContent=t;e.style.display='block';
+  clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',2500);
+}
+
+let S=load();
+let last=null, ws=null, sym='BTCUSDT';
+
+const liqPrice=(side,entry,lev)=>side==='LONG'?entry*(1-1/lev+MMR):entry*(1+1/lev-MMR);
+const pnlAt=(p,price)=>(p.side==='LONG'?1:-1)*(price-p.entry)*p.qty;
+const reservedMargin=()=>S.orders.reduce((a,o)=>a+o.margin,0)+(S.position?S.position.margin:0);
+const available=()=>S.wallet-reservedMargin();
+const unrealized=()=>S.position&&last!=null?pnlAt(S.position,last):0;
+
+/* ---------- price feed ---------- */
+function setStatus(t,c){const e=$('conn');e.textContent=t;e.className='status '+(c||'');}
+
+function connect(){
+  if(ws){const old=ws;ws=null;old.onclose=null;old.onmessage=null;old.close();}
+  last=null;lastBar=null;setStatus('подключение…','');
+  const sock=new WebSocket(`wss://fstream.binance.com/ws/${sym.toLowerCase()}@aggTrade`);
+  ws=sock;
+  sock.onopen=()=>{if(ws===sock)setStatus('live · Binance Futures','ok');};
+  sock.onmessage=e=>{if(ws!==sock)return;const d=JSON.parse(e.data);onPrice(+d.p,d.T);};
+  sock.onclose=()=>{
+    if(ws!==sock)return;
+    setStatus('нет связи, переподключение…','bad');
+    setTimeout(()=>{if(ws===sock)connect();},2000);
+  };
+  loadHistory();
+}
+
+let scheduled=false;
+function requestRender(){
+  if(scheduled)return;
+  scheduled=true;
+  requestAnimationFrame(()=>{scheduled=false;render();});
+}
+
+function onPrice(p,T){
+  if(!(p>0))return;
+  last=p;
+  updateCandle(p,T||Date.now());
+  checkFunding();
+  checkTriggers(p);
+  requestRender();
+}
+
+/* ---------- triggers ---------- */
+function checkTriggers(p){
+  const o=S.orders[0];
+  if(o&&o.symbol===sym&&(o.side==='LONG'?p<=o.price:p>=o.price))fillOrder(o);
+
+  const pos=S.position;
+  if(!pos||pos.symbol!==sym)return;
+  const L=pos.side==='LONG';
+  const worse=t=>L?Math.min(t,p):Math.max(t,p);   // gap-through fills at the worse price
+
+  if(L?p<=pos.liq:p>=pos.liq)return closePos(worse(pos.liq),'LIQ');
+  if(pos.sl&&(L?p<=pos.sl:p>=pos.sl))return closePos(worse(pos.sl),'SL');
+  if(pos.tp&&(L?p>=pos.tp:p<=pos.tp))return closePos(pos.tp,'TP');
+}
+
+function checkFunding(){
+  const p=S.position;
+  if(!p||last==null)return;
+  const slot=Math.floor(Date.now()/FUND_MS);
+  if(slot<=p.fslot)return;
+  const n=slot-p.fslot;
+  S.wallet+=(p.side==='LONG'?-1:1)*p.qty*last*FUNDING*n;
+  p.fslot=slot;
+  save();
+}
+
+/* ---------- orders ---------- */
+function formVals(){
+  const isLimit=$('type').value==='limit';
+  return {
+    isLimit,
+    margin:+$('margin').value,
+    lev:Math.floor(+$('lev').value),
+    tp:+$('tp').value||null,
+    sl:+$('sl').value||null,
+    price:isLimit?+$('limitPrice').value:last
+  };
+}
+function checkForm(f){
+  if(!(f.margin>0))return 'Маржа должна быть больше 0';
+  if(!(f.lev>=1&&f.lev<=125))return 'Плечо от 1 до 125';
+  if(!(f.price>0))return f.isLimit?'Укажите цену лимита':'Ждём цену с Binance';
+  return null;
+}
+
+function placeOrder(side){
+  if(S.position)return toast('Сначала закройте текущую позицию');
+  const f=formVals();
+  const err=checkForm(f);
+  if(err)return toast(err);
+  const {price,margin,lev,tp,sl,isLimit}=f;
+
+  if(isLimit){
+    if(S.orders.length)return toast('Уже есть лимит-ордер. Отмените его');
+    if(side==='LONG'&&price>=last)return toast('Лонг-лимит должен быть ниже текущей цены');
+    if(side==='SHORT'&&price<=last)return toast('Шорт-лимит должен быть выше текущей цены');
+  }
+  if(tp&&(side==='LONG'?tp<=price:tp>=price))return toast('Take Profit с неверной стороны');
+  if(sl&&(side==='LONG'?sl>=price:sl<=price))return toast('Stop Loss с неверной стороны');
+
+  const notional=margin*lev, qty=notional/price;
+  const fee=notional*(isLimit?FEE.maker:FEE.taker);
+  if(margin+fee>available())return toast('Недостаточно доступного баланса');
+
+  if(isLimit){
+    S.orders.push({id:S.nextId++,symbol:sym,side,price,qty,lev,margin,tp,sl});
+    save();render();
+    return toast('Лимит выставлен');
+  }
+  openPosition({symbol:sym,side,price,qty,lev,margin,tp,sl,fee});
+  toast(`Открыт ${side} по ${fmt(price)}`);
+}
+
+function openPosition({symbol,side,price,qty,lev,margin,tp,sl,fee}){
+  S.wallet-=fee;
+  S.position={
+    symbol,side,entry:price,qty,lev,margin,
+    liq:liqPrice(side,price,lev),
+    tp,sl,
+    fslot:Math.floor(Date.now()/FUND_MS)
+  };
+  save();
+}
+
+function fillOrder(o){
+  S.orders=S.orders.filter(x=>x.id!==o.id);
+  const notional=o.price*o.qty;
+  openPosition({symbol:o.symbol,side:o.side,price:o.price,qty:o.qty,lev:o.lev,
+    margin:o.margin,tp:o.tp,sl:o.sl,fee:notional*FEE.maker});
+  toast(`Лимит исполнен: ${o.side} @ ${fmt(o.price)}`);
+}
+
+function closePos(price,reason){
+  const p=S.position;
+  if(!p)return;
+  const gross=pnlAt(p,price);
+  const fee=reason==='LIQ'?0:price*p.qty*FEE.taker;
+  const net=gross-fee;
+  S.wallet=Math.max(0,S.wallet+net);
+  S.history.unshift({time:Date.now(),symbol:p.symbol,side:p.side,lev:p.lev,qty:p.qty,
+    entry:p.entry,exit:price,pnl:net,reason});
+  S.history=S.history.slice(0,200);
+  S.position=null;
+  save();render();
+  toast(`${reason}: ${sgn(net)} USDT`);
+}
+
+function closeMarket(){
+  if(S.position&&last!=null)closePos(last,'MARKET');
+}
+function cancelOrder(id){
+  S.orders=S.orders.filter(o=>o.id!==id);
+  save();render();
+}
+
+/* ---------- rendering ---------- */
+function updatePreview(){
+  $('limitWrap').style.display=$('type').value==='limit'?'block':'none';
+  const f=formVals();
+  const err=checkForm(f);
+  if(err){$('preview').textContent=err;return;}
+  const notional=f.margin*f.lev;
+  $('preview').innerHTML=
+    `Позиция: ${fmt(notional)} USDT ≈ ${fmt(notional/f.price,4)} ${sym.replace('USDT','')}<br>`+
+    `Ликвидация Long: ${fmt(liqPrice('LONG',f.price,f.lev))} · Short: ${fmt(liqPrice('SHORT',f.price,f.lev))}`;
+}
+
+function renderPosition(){
+  const p=S.position,el=$('position');
+  if(!p){el.innerHTML='<span class="muted">Нет открытой позиции</span>';return;}
+  const pnl=last==null?0:pnlAt(p,last);
+  const roe=pnl/p.margin*100;
+  const rows=[
+    ['Вход',fmt(p.entry)],
+    ['Текущая',last==null?'—':fmt(last)],
+    ['Ликвидация',fmt(p.liq)],
+    ['Take Profit',p.tp?fmt(p.tp):'—'],
+    ['Stop Loss',p.sl?fmt(p.sl):'—'],
+    ['Маржа',fmt(p.margin)+' USDT'],
+    ['Размер',fmt(p.qty,4)+' '+p.symbol.replace('USDT','')],
+    ['PnL',`<span class="${cls(pnl)}">${sgn(pnl)} USDT (${sgn(roe)}%)</span>`]
+  ];
+  el.innerHTML=
+    `<div style="margin-bottom:8px"><b class="${p.side==='LONG'?'up':'down'}">${p.side} ${p.lev}x</b> · ${p.symbol}</div>`+
+    `<table>${rows.map(([k,v])=>`<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>`+
+    `<button class="sell" style="margin-top:10px;width:100%" onclick="closeMarket()">Закрыть по рынку</button>`;
+}
+
+function renderOrders(){
+  const el=$('orders');
+  if(!S.orders.length){el.innerHTML='<span class="muted">Нет</span>';return;}
+  el.innerHTML='<table><tr><td>Сторона</td><td>Цена</td><td>Маржа</td><td></td></tr>'+
+    S.orders.map(o=>`<tr><td class="${o.side==='LONG'?'up':'down'}">${o.side} ${o.lev}x</td>`+
+      `<td>${fmt(o.price)}</td><td>${fmt(o.margin)}</td>`+
+      `<td><button class="ghost" onclick="cancelOrder(${o.id})">Отмена</button></td></tr>`).join('')+
+    '</table>';
+}
+
+function renderHistory(){
+  const el=$('history'),h=S.history;
+  if(!h.length){el.innerHTML='<span class="muted">Пусто</span>';return;}
+  const total=h.reduce((a,x)=>a+x.pnl,0);
+  const wins=h.filter(x=>x.pnl>0).length;
+  el.innerHTML=
+    `<div class="muted" style="margin-bottom:6px">Сделок: ${h.length} · Винрейт: ${Math.round(wins/h.length*100)}% · `+
+    `Итого: <span class="${cls(total)}">${sgn(total)} USDT</span></div>`+
+    '<table><tr><td>Время</td><td>Пара</td><td>Сторона</td><td>Вход</td><td>Выход</td><td>PnL</td><td>Причина</td></tr>'+
+    h.slice(0,50).map(x=>`<tr><td>${new Date(x.time).toLocaleTimeString('ru-RU')}</td>`+
+      `<td>${x.symbol}</td><td class="${x.side==='LONG'?'up':'down'}">${x.side} ${x.lev}x</td>`+
+      `<td>${fmt(x.entry)}</td><td>${fmt(x.exit)}</td>`+
+      `<td class="${cls(x.pnl)}">${sgn(x.pnl)}</td><td>${x.reason}</td></tr>`).join('')+
+    '</table>';
+}
+
+function render(){
+  $('price').textContent=last==null?'—':fmt(last,last<10?4:2);
+  const up=unrealized();
+  $('wallet').textContent=fmt(S.wallet);
+  $('avail').textContent=fmt(available());
+  $('equity').textContent=fmt(S.wallet+up);
+  $('upnl').innerHTML=`<span class="${cls(up)}">${sgn(up)}</span>`;
+  renderPosition();renderOrders();renderHistory();updatePreview();
+  drawLines();
+}
+
+/* ---------- chart ---------- */
+const TF_MS={'1m':60000,'5m':300000,'15m':900000,'1h':3600000};
+let tf='1m', chart=null, candles=null, lastBar=null, priceLines={}, linesSig='';
+
+function initChart(){
+  const el=$('chart');
+  chart=LightweightCharts.createChart(el,{
+    layout:{background:{color:'#161922'},textColor:'#858c9c'},
+    grid:{vertLines:{color:'#1f2330'},horzLines:{color:'#1f2330'}},
+    timeScale:{timeVisible:true,secondsVisible:false,borderColor:'#262b38',rightOffset:5},
+    rightPriceScale:{borderColor:'#262b38'},
+    crosshair:{mode:0},
+    width:el.clientWidth,height:el.clientHeight
+  });
+  candles=chart.addCandlestickSeries({
+    upColor:'#2ecc71',downColor:'#e5534b',borderVisible:false,
+    wickUpColor:'#2ecc71',wickDownColor:'#e5534b'
+  });
+  window.addEventListener('resize',()=>chart.applyOptions({width:el.clientWidth,height:el.clientHeight}));
+}
+
+async function loadHistory(){
+  const reqSym=sym, reqTf=tf;
+  try{
+    const r=await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${reqSym}&interval=${reqTf}&limit=500`);
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const k=await r.json();
+    if(reqSym!==sym||reqTf!==tf)return;   // пара или таймфрейм сменились, пока грузилось
+    const bars=k.map(x=>({time:Math.floor(x[0]/1000),open:+x[1],high:+x[2],low:+x[3],close:+x[4]}));
+    candles.setData(bars);
+    lastBar=bars[bars.length-1]||null;
+    chart.timeScale().scrollToRealTime();
+    drawLines(true);
+  }catch(e){
+    toast('Не удалось загрузить историю графика');
+  }
+}
+
+// Свеча строится из тиков aggTrade, поэтому обновляется в реальном времени на любом таймфрейме
+function updateCandle(p,T){
+  if(!lastBar||!candles)return;
+  const ms=TF_MS[tf];
+  const bucket=Math.floor(T/ms)*ms/1000;
+  if(bucket<lastBar.time)return;
+  if(bucket>lastBar.time){
+    lastBar={time:bucket,open:p,high:p,low:p,close:p};
+  }else{
+    lastBar.close=p;
+    if(p>lastBar.high)lastBar.high=p;
+    if(p<lastBar.low)lastBar.low=p;
+  }
+  candles.update(lastBar);
+}
+
+function drawLines(force){
+  if(!candles)return;
+  const p=S.position, o=S.orders[0];
+  const sig=JSON.stringify([sym,tf,p&&p.symbol,p&&p.entry,p&&p.liq,p&&p.tp,p&&p.sl,o&&o.symbol,o&&o.price]);
+  if(sig===linesSig&&!force)return;
+  linesSig=sig;
+  Object.values(priceLines).forEach(l=>candles.removePriceLine(l));
+  priceLines={};
+  const add=(key,price,color,style,title)=>{
+    if(price>0)priceLines[key]=candles.createPriceLine({price,color,lineWidth:1,lineStyle:style,axisLabelVisible:true,title});
+  };
+  if(p&&p.symbol===sym){
+    add('entry',p.entry,'#9aa3b5',2,'Вход');
+    add('liq',p.liq,'#e5534b',1,'Ликв.');
+    if(p.tp)add('tp',p.tp,'#2ecc71',2,'TP');
+    if(p.sl)add('sl',p.sl,'#f0a040',2,'SL');
+  }
+  if(o&&o.symbol===sym)add('order',o.price,'#f0b90b',2,'Лимит');
+}
+
+/* ---------- events ---------- */
+document.querySelectorAll('[data-side]').forEach(b=>b.onclick=()=>placeOrder(b.dataset.side));
+['type','margin','lev','limitPrice','tp','sl'].forEach(id=>$(id).addEventListener('input',updatePreview));
+$('type').addEventListener('change',updatePreview);
+
+document.querySelectorAll('#tfs button').forEach(b=>b.onclick=()=>{
+  tf=b.dataset.tf;
+  document.querySelectorAll('#tfs button').forEach(x=>x.classList.toggle('on',x===b));
+  loadHistory();
+});
+
+$('symbol').onchange=()=>{
+  const v=$('symbol').value;
+  if(S.position||S.orders.length){
+    toast('Сначала закройте позицию или отмените ордер');
+    $('symbol').value=sym;return;
+  }
+  sym=v;connect();render();
+};
+
+$('reset').onclick=()=>{
+  if(!confirm('Сбросить счёт до 10 000 USDT? История будет удалена.'))return;
+  S=fresh();save();render();
+};
+
+/* ---------- start ---------- */
+if(S.position)sym=S.position.symbol;
+else if(S.orders.length)sym=S.orders[0].symbol;
+$('symbol').value=sym;
+initChart();
+connect();
+render();
+</script>
+</body>
+</html>
